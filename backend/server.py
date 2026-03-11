@@ -13,7 +13,6 @@ from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
 import secrets
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -471,82 +470,6 @@ async def get_agent_matches(current_user: dict = Depends(get_current_user)):
     
     return matches
 
-# BOT ENDPOINTS
-@api_router.post("/bot/conversation/{match_id}")
-async def send_bot_message(match_id: str, request: SendMessageRequest, current_user: dict = Depends(get_current_user)):
-    # Get match and verify agent owns it
-    match = await db.matches.find_one({"id": match_id}, {"_id": 0})
-    if not match:
-        raise HTTPException(status_code=404, detail="Match não encontrado")
-    
-    if match["agent_id"] != current_user["user_id"] and current_user["role"] not in ["curator", "admin"]:
-        raise HTTPException(status_code=403, detail="Acesso negado")
-    
-    # Get or create conversation
-    conversation = await db.bot_conversations.find_one({"match_id": match_id}, {"_id": 0})
-    if not conversation:
-        conversation = {
-            "id": str(uuid.uuid4()),
-            "match_id": match_id,
-            "messages": [],
-            "property_info": None,
-            "status": "active",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.bot_conversations.insert_one(conversation)
-    
-    # Add user message
-    user_message = {
-        "role": "user",
-        "content": request.message,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-    
-    # Get interest details for context
-    interest = await db.interests.find_one({"id": match["interest_id"]}, {"_id": 0})
-    
-    # Initialize LLM chat
-    api_key = os.environ.get('EMERGENT_LLM_KEY')
-    system_message = f"""Você é um assistente especializado em coletar informações sobre imóveis.
-O comprador está interessado em: {interest.get('property_type')} em {interest.get('location')}
-Orçamento: R$ {interest.get('min_price'):,.2f} - R$ {interest.get('max_price'):,.2f}
-
-Sua função é coletar as seguintes informações do corretor sobre o imóvel:
-1. Endereço completo
-2. Tipo do imóvel
-3. Área total e área construída
-4. Número de quartos, banheiros e vagas
-5. Valor do imóvel
-6. Características especiais (piscina, churrasqueira, etc)
-7. Estado de conservação
-8. Disponibilidade para visita
-
-Seja educado, objetivo e faça uma pergunta de cada vez. Quando tiver todas as informações, confirme os dados."""
-    
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=match_id,
-        system_message=system_message
-    ).with_model("openai", "gpt-5.2")
-    
-    # Send message to LLM
-    user_msg = UserMessage(text=request.message)
-    response = await chat.send_message(user_msg)
-    
-    # Add assistant message
-    assistant_message = {
-        "role": "assistant",
-        "content": response,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-    
-    # Update conversation
-    await db.bot_conversations.update_one(
-        {"match_id": match_id},
-        {"$push": {"messages": {"$each": [user_message, assistant_message]}}}
-    )
-    
-    return {"response": response}
 
 @api_router.get("/bot/conversation/{match_id}")
 async def get_bot_conversation(match_id: str, current_user: dict = Depends(get_current_user)):
