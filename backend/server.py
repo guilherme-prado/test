@@ -28,7 +28,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 7 days
 
 # Create the main app
-app = FastAPI()
+app = FastAPI(redirect_slashes=False)
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer()
 
@@ -832,14 +832,14 @@ async def get_all_curators(current_user: dict = Depends(get_current_user)):
     return curators
 
 # Include router
-app.include_router(api_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(api_router)
+
 
 logging.basicConfig(
     level=logging.INFO,
